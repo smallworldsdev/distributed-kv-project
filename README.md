@@ -12,12 +12,14 @@ This project is designed to:
 
 ---
 
-# Features (Planned / In Progress)
+# Features
 
 * RPC-based inter-node communication (`net/rpc`)
 * Multi-node cluster support
 * Docker-based local multi-node simulation
 * Makefile-based developer workflow
+* Data Persistence (JSON to disk)
+* Peer-to-Peer Replication (Basic Broadcast)
 
 ---
 
