@@ -3,10 +3,12 @@ package main
 import (
 	"log"
 	"net"
+	"net/http"
 	"net/rpc"
 	"os"
 	"path/filepath"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/smallworldsdev/distributed-kv-project/internal/cluster"
 	"github.com/smallworldsdev/distributed-kv-project/internal/config"
 	"github.com/smallworldsdev/distributed-kv-project/internal/store"
@@ -35,6 +37,15 @@ func main() {
 	if err != nil {
 		log.Fatal("Error registering RPC service:", err)
 	}
+
+	// Start Metrics Server
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		log.Printf("Metrics server listening on port %s", cfg.MetricsPort)
+		if err := http.ListenAndServe(":"+cfg.MetricsPort, nil); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
 
 	listener, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {

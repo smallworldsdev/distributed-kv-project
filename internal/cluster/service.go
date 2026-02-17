@@ -23,27 +23,37 @@ func NewService(nodeID string, store *store.Store, peers []string) *Service {
 }
 
 func (s *Service) Ping(req *internalrpc.PingRequest, res *internalrpc.PingResponse) error {
+	rpcRequests.WithLabelValues("Ping", "success").Inc()
 	log.Printf("Received ping: %s", req.Message)
 	res.Message = "Pong from node " + s.NodeID
 	return nil
 }
 
 func (s *Service) Get(req *internalrpc.GetRequest, res *internalrpc.GetResponse) error {
+	rpcRequests.WithLabelValues("Get", "received").Inc()
 	log.Printf("Received Get request for key: %s", req.Key)
 	val, found := s.Store.Get(req.Key)
 	res.Value = val
 	res.Found = found
+	if found {
+		kvOperations.WithLabelValues("Get", "found").Inc()
+	} else {
+		kvOperations.WithLabelValues("Get", "not_found").Inc()
+	}
 	return nil
 }
 
 func (s *Service) Put(req *internalrpc.PutRequest, res *internalrpc.PutResponse) error {
+	rpcRequests.WithLabelValues("Put", "received").Inc()
 	log.Printf("Received Put request for key: %s, value: %s, isReplication: %v", req.Key, req.Value, req.IsReplication)
 	err := s.Store.Put(req.Key, req.Value)
 	if err != nil {
+		kvOperations.WithLabelValues("Put", "error").Inc()
 		log.Printf("Error saving to store: %v", err)
 		res.Success = false
 		return err
 	}
+	kvOperations.WithLabelValues("Put", "success").Inc()
 
 	// Replicate to peers if this is not a replication request
 	if !req.IsReplication {
