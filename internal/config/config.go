@@ -6,9 +6,10 @@ import (
 )
 
 type Config struct {
-	NodeID string
-	Port   string
-	Peers  []string
+	NodeID  string
+	Port    string
+	Peers   []string
+	DataDir string
 }
 
 func LoadConfig() *Config {
@@ -28,9 +29,15 @@ func LoadConfig() *Config {
 		peers = strings.Split(peersEnv, ",")
 	}
 
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+
 	return &Config{
-		NodeID: nodeID,
-		Port:   port,
-		Peers:  peers,
+		NodeID:  nodeID,
+		Port:    port,
+		Peers:   peers,
+		DataDir: dataDir,
 	}
 }

@@ -37,7 +37,12 @@ func (s *Service) Get(req *rpc.GetRequest, res *rpc.GetResponse) error {
 
 func (s *Service) Put(req *rpc.PutRequest, res *rpc.PutResponse) error {
 	log.Printf("Received Put request for key: %s, value: %s", req.Key, req.Value)
-	s.Store.Put(req.Key, req.Value)
+	err := s.Store.Put(req.Key, req.Value)
+	if err != nil {
+		log.Printf("Error saving to store: %v", err)
+		res.Success = false
+		return err
+	}
 	res.Success = true
 	return nil
 }
