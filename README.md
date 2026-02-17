@@ -1,5 +1,5 @@
 
-# Distributed KV
+# Distributed KV [WIP]
 
 A distributed key–value store written in Go using the standard `net/rpc` package.
 
