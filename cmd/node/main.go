@@ -4,53 +4,32 @@ import (
 	"log"
 	"net"
 	"net/rpc"
-	"os"
 
-	internalrpc "github.com/smallworldsdev/distributed-kv-project/internal/rpc"
+	"github.com/smallworldsdev/distributed-kv-project/internal/cluster"
+	"github.com/smallworldsdev/distributed-kv-project/internal/config"
+	"github.com/smallworldsdev/distributed-kv-project/internal/store"
 )
-
-// ---- RPC Service ----
-
-type NodeService struct {
-	NodeID string
-}
-
-func (n *NodeService) Ping(req *internalrpc.PingRequest, res *internalrpc.PingResponse) error {
-	log.Printf("Received ping: %s", req.Message)
-
-	res.Message = "Pong from node " + n.NodeID
-	return nil
-}
 
 // ---- Main ----
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
-	}
+	cfg := config.LoadConfig()
 
-	nodeID := os.Getenv("NODE_ID")
-	if nodeID == "" {
-		nodeID = port
-	}
-
-	service := &NodeService{
-		NodeID: nodeID,
-	}
+	kvStore := store.NewStore()
+	service := cluster.NewService(cfg.NodeID, kvStore, cfg.Peers)
 
 	// Register RPC service
-	err := rpc.Register(service)
+	err := rpc.RegisterName("NodeService", service)
 	if err != nil {
 		log.Fatal("Error registering RPC service:", err)
 	}
 
-	listener, err := net.Listen("tcp", ":"+port)
+	listener, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
 		log.Fatal("Error starting listener:", err)
 	}
 
-	log.Printf("Node %s listening on port %s\n", nodeID, port)
+	log.Printf("Node %s listening on port %s\n", cfg.NodeID, cfg.Port)
 
 	for {
 		conn, err := listener.Accept()
