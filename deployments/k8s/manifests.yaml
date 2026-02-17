@@ -8,7 +8,22 @@ spec:
   ports:
   - port: 8000
     name: rpc
-  clusterIP: None  # Headless service for stable DNS
+  clusterIP: None  # Headless service for stable DNS (internal)
+  selector:
+    app: distributed-kv
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kv-external
+  labels:
+    app: distributed-kv
+spec:
+  type: LoadBalancer # Exposes service externally
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: rpc
   selector:
     app: distributed-kv
 ---
@@ -29,8 +44,8 @@ spec:
     spec:
       containers:
       - name: kv-node
-        image: distributed-kv:latest  # Replace with your registry image
-        imagePullPolicy: IfNotPresent
+        image: ${IMAGE_REGISTRY}/distributed-kv:latest # Placeholder for envsubst
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
           name: rpc
@@ -42,8 +57,7 @@ spec:
             fieldRef:
               fieldPath: metadata.name
         - name: PEERS
-          # Simple static discovery assuming 3 replicas: kv-node-0, kv-node-1, kv-node-2
-          # In a real setup, use an init container or discovery service.
+          # DNS for StatefulSet: pod-name.service-name
           value: "kv-node-0.kv-service:8000,kv-node-1.kv-service:8000,kv-node-2.kv-service:8000"
         volumeMounts:
         - name: data
