@@ -3,7 +3,7 @@ package cluster
 import (
 	"testing"
 
-	"github.com/smallworldsdev/distributed-kv-project/internal/rpc"
+	internalrpc "github.com/smallworldsdev/distributed-kv-project/internal/rpc"
 	"github.com/smallworldsdev/distributed-kv-project/internal/store"
 )
 
@@ -12,8 +12,8 @@ func TestService(t *testing.T) {
 	svc := NewService("node1", s, nil)
 
 	// Test Ping
-	pingReq := &rpc.PingRequest{Message: "Hello"}
-	pingRes := &rpc.PingResponse{}
+	pingReq := &internalrpc.PingRequest{Message: "Hello"}
+	pingRes := &internalrpc.PingResponse{}
 	err := svc.Ping(pingReq, pingRes)
 	if err != nil {
 		t.Fatalf("Ping failed: %v", err)
@@ -25,8 +25,8 @@ func TestService(t *testing.T) {
 	// Test Put
 	key := "foo"
 	value := "bar"
-	putReq := &rpc.PutRequest{Key: key, Value: value}
-	putRes := &rpc.PutResponse{}
+	putReq := &internalrpc.PutRequest{Key: key, Value: value}
+	putRes := &internalrpc.PutResponse{}
 	err = svc.Put(putReq, putRes)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
@@ -36,8 +36,8 @@ func TestService(t *testing.T) {
 	}
 
 	// Test Get
-	getReq := &rpc.GetRequest{Key: key}
-	getRes := &rpc.GetResponse{}
+	getReq := &internalrpc.GetRequest{Key: key}
+	getRes := &internalrpc.GetResponse{}
 	err = svc.Get(getReq, getRes)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
