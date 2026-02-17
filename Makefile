@@ -1,7 +1,7 @@
 BINARY=node
 CLIENT=client
 
-.PHONY: build run test docker up down logs clean
+.PHONY: build run test docker up down logs clean deploy
 
 build:
 	go build -o bin/$(BINARY) ./cmd/node
@@ -30,3 +30,6 @@ logs:
 
 clean:
 	rm -rf bin
+
+deploy:
+	kubectl apply -f deployments/k8s/manifests.yaml

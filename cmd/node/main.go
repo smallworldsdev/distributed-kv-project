@@ -5,7 +5,9 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/smallworldsdev/distributed-kv-project/internal/cluster"
 	"github.com/smallworldsdev/distributed-kv-project/internal/config"
@@ -41,15 +43,37 @@ func main() {
 		log.Fatal("Error starting listener:", err)
 	}
 
+	// Channel to listen for OS signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	log.Printf("Node %s listening on port %s\n", cfg.NodeID, cfg.Port)
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Println("Connection error:", err)
-			continue
+	// Run server in goroutine
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				// Don't log error if listener is closed during shutdown
+				select {
+				case <-sigChan:
+					return
+				default:
+					log.Println("Connection error:", err)
+				}
+				continue
+			}
+			go rpc.ServeConn(conn)
 		}
+	}()
 
-		go rpc.ServeConn(conn)
-	}
+	// Wait for shutdown signal
+	sig := <-sigChan
+	log.Printf("Received signal %s. Shutting down...", sig)
+
+	// Graceful shutdown logic
+	listener.Close()
+	log.Println("Listener closed.")
+	// Add store.Close() here if implemented in future
+	log.Println("Shutdown complete.")
 }
