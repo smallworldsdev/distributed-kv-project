@@ -24,8 +24,9 @@ type GetResponse struct {
 // Put
 
 type PutRequest struct {
-	Key   string
-	Value string
+	Key           string
+	Value         string
+	IsReplication bool
 }
 
 type PutResponse struct {

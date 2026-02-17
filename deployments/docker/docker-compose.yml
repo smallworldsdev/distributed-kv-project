@@ -7,6 +7,8 @@ services:
       dockerfile: deployments/docker/Dockerfile
     environment:
       - PORT=8001
+      - NODE_ID=node1
+      - PEERS=node2:8002,node3:8003
     ports:
       - "8001:8001"
     networks:
@@ -18,6 +20,8 @@ services:
       dockerfile: deployments/docker/Dockerfile
     environment:
       - PORT=8002
+      - NODE_ID=node2
+      - PEERS=node1:8001,node3:8003
     ports:
       - "8002:8002"
     networks:
@@ -29,6 +33,8 @@ services:
       dockerfile: deployments/docker/Dockerfile
     environment:
       - PORT=8003
+      - NODE_ID=node3
+      - PEERS=node1:8001,node2:8002
     ports:
       - "8003:8003"
     networks:
