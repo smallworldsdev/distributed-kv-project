@@ -74,6 +74,25 @@ func main() {
 			fmt.Println("Put failed")
 		}
 
+	case "trigger":
+		if len(os.Args) < 4 {
+			log.Fatal("Usage: trigger <algorithm> (mutex, election, snapshot)")
+		}
+		algo := os.Args[3]
+		req := &internalrpc.TriggerRequest{
+			Command: algo,
+		}
+		var res internalrpc.TriggerResponse
+		err = client.Call("NodeService.Trigger", req, &res)
+		if err != nil {
+			log.Fatal("RPC call failed:", err)
+		}
+		if res.Success {
+			fmt.Printf("Trigger successful: %s\n", res.Message)
+		} else {
+			fmt.Printf("Trigger failed: %s\n", res.Message)
+		}
+
 	default:
 		log.Fatalf("Unknown command: %s", command)
 	}

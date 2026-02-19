@@ -58,6 +58,18 @@ func (s *Store) Get(key string) (string, bool) {
 	return val, ok
 }
 
+// GetCopy returns a copy of the current data in the store.
+func (s *Store) GetCopy() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	copy := make(map[string]string)
+	for k, v := range s.data {
+		copy[k] = v
+	}
+	return copy
+}
+
 // save persists the current state to the file.
 // Expects caller to hold the lock.
 func (s *Store) save() error {

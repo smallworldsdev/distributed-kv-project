@@ -165,6 +165,36 @@ Important:
 
 ---
 
+# New Features Usage (Distributed Algorithms)
+
+You can trigger distributed algorithms using the client CLI.
+
+### 1. Start Local Cluster
+Use the helper script to start 3 nodes locally:
+```bash
+./run_cluster.sh
+```
+
+### 2. Trigger Mutual Exclusion (Ricart-Agrawala)
+Ask a node to enter the Critical Section (CS). It will coordinate with peers.
+```bash
+go run cmd/client/main.go localhost:8001 trigger mutex
+```
+
+### 3. Trigger Leader Election (Bully Algorithm)
+Ask a node to start an election. The node with the highest ID (lexicographically) will become leader.
+```bash
+go run cmd/client/main.go localhost:8001 trigger election
+```
+
+### 4. Trigger Snapshot (Chandy-Lamport Simplified)
+Ask a node to initiate a global state recording.
+```bash
+go run cmd/client/main.go localhost:8001 trigger snapshot
+```
+
+---
+
 # Makefile Commands
 
 | Command       | Description                  |
