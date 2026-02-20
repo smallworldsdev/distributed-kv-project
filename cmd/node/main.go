@@ -49,6 +49,9 @@ func main() {
 
 	log.Printf("Node %s listening on port %s\n", cfg.NodeID, cfg.Port)
 
+	// Start background tasks (heartbeat, monitoring)
+	service.Start()
+
 	// Run server in goroutine
 	go func() {
 		for {
@@ -72,6 +75,7 @@ func main() {
 	log.Printf("Received signal %s. Shutting down...", sig)
 
 	// Graceful shutdown logic
+	service.Shutdown()
 	listener.Close()
 	log.Println("Listener closed.")
 	// Add store.Close() here if implemented in future

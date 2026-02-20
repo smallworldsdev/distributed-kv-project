@@ -83,3 +83,13 @@ type TriggerResponse struct {
 	Message string
 	Success bool
 }
+
+// Heartbeat
+
+type HeartbeatRequest struct {
+	LeaderID string
+}
+
+type HeartbeatResponse struct {
+	Success bool
+}
