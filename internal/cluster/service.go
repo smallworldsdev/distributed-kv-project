@@ -11,6 +11,11 @@ import (
 	"github.com/smallworldsdev/distributed-kv-project/internal/store"
 )
 
+const (
+	HeartbeatInterval = 1 * time.Second
+	ElectionTimeout   = 3 * time.Second
+)
+
 type Service struct {
 	NodeID string
 	Store  *store.Store
@@ -26,6 +31,8 @@ type Service struct {
 	
 	leaderID       string
 	isElectionInProgress bool
+	lastHeartbeat  time.Time
+	done           chan struct{}
 
 	snapshotID     int64
 	snapshots      map[int64]map[string]string
@@ -38,9 +45,20 @@ func NewService(nodeID string, store *store.Store, peers []string) *Service {
 		Peers:     peers,
 		deferredReplies: make([]string, 0),
 		snapshots: make(map[int64]map[string]string),
+		lastHeartbeat: time.Now(),
+		done:          make(chan struct{}),
 	}
 	s.cond = sync.NewCond(&s.mu)
 	return s
+}
+
+func (s *Service) Start() {
+	go s.runHeartbeatSender()
+	go s.runElectionMonitor()
+}
+
+func (s *Service) Shutdown() {
+	close(s.done)
 }
 
 func (s *Service) Ping(req *internalrpc.PingRequest, res *internalrpc.PingResponse) error {
@@ -269,6 +287,7 @@ func (s *Service) Coordinator(req *internalrpc.CoordinatorRequest, res *internal
 	defer s.mu.Unlock()
 	s.leaderID = req.NodeID
 	s.isElectionInProgress = false
+	s.lastHeartbeat = time.Now() // Reset timeout on new leader
 	log.Printf("Node %s acknowledged leader: %s", s.NodeID, req.NodeID)
 	res.Ack = true
 	return nil
@@ -368,4 +387,84 @@ func (s *Service) Trigger(req *internalrpc.TriggerRequest, res *internalrpc.Trig
 		res.Success = false
 	}
 	return nil
+}
+
+// ---- Heartbeat & Monitoring ----
+
+func (s *Service) Heartbeat(req *internalrpc.HeartbeatRequest, res *internalrpc.HeartbeatResponse) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If we receive a heartbeat, update our lastHeartbeat timestamp
+	s.lastHeartbeat = time.Now()
+
+	// If the heartbeat comes from a valid leader, ensure we recognize them
+	if req.LeaderID != s.leaderID {
+		log.Printf("Node %s received heartbeat from new leader: %s", s.NodeID, req.LeaderID)
+		s.leaderID = req.LeaderID
+		s.isElectionInProgress = false
+	}
+
+	res.Success = true
+	return nil
+}
+
+func (s *Service) runHeartbeatSender() {
+	ticker := time.NewTicker(HeartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			isLeader := s.leaderID == s.NodeID
+			s.mu.Unlock()
+
+			if isLeader {
+				for _, peer := range s.Peers {
+					go func(p string) {
+						client, err := rpc.Dial("tcp", p)
+						if err != nil {
+							// Peer might be down
+							return
+						}
+						defer client.Close()
+
+						req := internalrpc.HeartbeatRequest{LeaderID: s.NodeID}
+						var res internalrpc.HeartbeatResponse
+						if err := client.Call("NodeService.Heartbeat", &req, &res); err != nil {
+							// Log failure sparingly?
+						}
+					}(peer)
+				}
+			}
+		}
+	}
+}
+
+func (s *Service) runElectionMonitor() {
+	ticker := time.NewTicker(500 * time.Millisecond) // Check frequently
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			elapsed := time.Since(s.lastHeartbeat)
+			isLeader := s.leaderID == s.NodeID
+			electionInProgress := s.isElectionInProgress
+			s.mu.Unlock()
+
+			if !isLeader && !electionInProgress && elapsed > ElectionTimeout {
+				log.Printf("Node %s detected leader failure (last heartbeat %v ago). Starting election.", s.NodeID, elapsed)
+				// Reset lastHeartbeat to prevent immediate re-triggering while election starts?
+				// StartElection will set isElectionInProgress=true, which blocks this check.
+				go s.StartElection()
+			}
+		}
+	}
 }
