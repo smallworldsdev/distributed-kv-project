@@ -1,0 +1,5 @@
+Starting cluster...
+Starting Node 1 on port 8001
+Starting Node 2 on port 8002
+Starting Node 3 on port 8003
+Cluster started. Press Ctrl+C to stop.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,33 +21,33 @@ type Service struct {
 	NodeID string
 	Store  *store.Store
 	Peers  []string
-	
-	mu             sync.Mutex
-	cond           *sync.Cond
-	lamportClock   int64
-	myTimestamp    int64
-	requestingCS   bool
-	replyCount     int
-	deferredReplies []string
-	
-	leaderID       string
-	isElectionInProgress bool
-	lastHeartbeat  time.Time
-	done           chan struct{}
 
-	snapshotID     int64
-	snapshots      map[int64]map[string]string
+	mu              sync.Mutex
+	cond            *sync.Cond
+	lamportClock    int64
+	myTimestamp     int64
+	requestingCS    bool
+	replyCount      int
+	deferredReplies []string
+
+	leaderID             string
+	isElectionInProgress bool
+	lastHeartbeat        time.Time
+	done                 chan struct{}
+
+	snapshotID int64
+	snapshots  map[int64]map[string]string
 }
 
 func NewService(nodeID string, store *store.Store, peers []string) *Service {
 	s := &Service{
-		NodeID:    nodeID,
-		Store:     store,
-		Peers:     peers,
+		NodeID:          nodeID,
+		Store:           store,
+		Peers:           peers,
 		deferredReplies: make([]string, 0),
-		snapshots: make(map[int64]map[string]string),
-		lastHeartbeat: time.Now(),
-		done:          make(chan struct{}),
+		snapshots:       make(map[int64]map[string]string),
+		lastHeartbeat:   time.Now(),
+		done:            make(chan struct{}),
 	}
 	s.cond = sync.NewCond(&s.mu)
 	return s
@@ -77,22 +78,30 @@ func (s *Service) Get(req *internalrpc.GetRequest, res *internalrpc.GetResponse)
 
 func (s *Service) Put(req *internalrpc.PutRequest, res *internalrpc.PutResponse) error {
 	log.Printf("Received Put request for key: %s, value: %s, isReplication: %v", req.Key, req.Value, req.IsReplication)
-	err := s.Store.Put(req.Key, req.Value)
-	if err != nil {
-		log.Printf("Error saving to store: %v", err)
+	if req.IsReplication {
+		return s.applyPut(req, res)
+	}
+
+	s.mu.Lock()
+	leaderID := s.leaderID
+	s.mu.Unlock()
+
+	if leaderID == "" {
 		res.Success = false
-		return err
+		return fmt.Errorf("leader unknown; run election before write")
 	}
 
-	// Replicate to peers if this is not a replication request
-	if !req.IsReplication {
-		for _, peer := range s.Peers {
-			go s.replicateToPeer(peer, req)
+	if leaderID != s.NodeID {
+		leaderAddr, err := s.resolveLeaderAddr(leaderID)
+		if err != nil {
+			res.Success = false
+			return err
 		}
+
+		return s.forwardPutToLeader(leaderAddr, req, res)
 	}
 
-	res.Success = true
-	return nil
+	return s.applyPut(req, res)
 }
 
 func (s *Service) replicateToPeer(peer string, originalReq *internalrpc.PutRequest) {
@@ -110,6 +119,67 @@ func (s *Service) replicateToPeer(peer string, originalReq *internalrpc.PutReque
 	if err := client.Call("NodeService.Put", &replReq, &replRes); err != nil {
 		log.Printf("Failed to replicate to peer %s: %v", peer, err)
 	}
+}
+
+func (s *Service) applyPut(req *internalrpc.PutRequest, res *internalrpc.PutResponse) error {
+	err := s.Store.Put(req.Key, req.Value)
+	if err != nil {
+		log.Printf("Error saving to store: %v", err)
+		res.Success = false
+		return err
+	}
+
+	// Only the leader should fan out replication for client-originated writes.
+	if !req.IsReplication {
+		for _, peer := range s.Peers {
+			go s.replicateToPeer(peer, req)
+		}
+	}
+
+	res.Success = true
+	return nil
+}
+
+func (s *Service) resolveLeaderAddr(leaderID string) (string, error) {
+	for _, peer := range s.Peers {
+		client, err := rpc.Dial("tcp", peer)
+		if err != nil {
+			continue
+		}
+
+		req := &internalrpc.PingRequest{Message: "identify"}
+		var res internalrpc.PingResponse
+		callErr := client.Call("NodeService.Ping", req, &res)
+		client.Close()
+		if callErr != nil {
+			continue
+		}
+
+		nodeID := strings.TrimPrefix(res.Message, "Pong from node ")
+		if nodeID == leaderID {
+			return peer, nil
+		}
+	}
+
+	return "", fmt.Errorf("leader %s unreachable or unknown", leaderID)
+}
+
+func (s *Service) forwardPutToLeader(leaderAddr string, req *internalrpc.PutRequest, res *internalrpc.PutResponse) error {
+	client, err := rpc.Dial("tcp", leaderAddr)
+	if err != nil {
+		res.Success = false
+		return fmt.Errorf("failed to dial leader %s: %w", leaderAddr, err)
+	}
+	defer client.Close()
+
+	var leaderRes internalrpc.PutResponse
+	if err := client.Call("NodeService.Put", req, &leaderRes); err != nil {
+		res.Success = false
+		return fmt.Errorf("leader put failed: %w", err)
+	}
+
+	res.Success = leaderRes.Success
+	return nil
 }
 
 // ---- Mutual Exclusion (Ricart-Agrawala) ----
@@ -174,7 +244,7 @@ func (s *Service) RequestMutex(req *internalrpc.RequestMutexRequest, res *intern
 	// Decide whether to defer
 	// Defer if we are requesting AND (our timestamp < req timestamp OR (timestamps equal AND our ID < req ID))
 	// Note: We use string comparison for NodeID as tie-breaker.
-	shouldDefer := s.requestingCS && 
+	shouldDefer := s.requestingCS &&
 		(s.myTimestamp < req.Timestamp || (s.myTimestamp == req.Timestamp && s.NodeID < req.NodeID))
 
 	if shouldDefer {
@@ -230,7 +300,7 @@ func (s *Service) StartElection() {
 					s.mu.Unlock()
 				}
 			}
-		}(p)
+		}(peer)
 	}
 	wg.Wait()
 
@@ -244,7 +314,7 @@ func (s *Service) StartElection() {
 		log.Printf("Node %s is the new leader", s.NodeID)
 		s.leaderID = s.NodeID
 		s.isElectionInProgress = false
-		
+
 		// Broadcast Coordinator
 		for _, peer := range s.Peers {
 			go func(p string) {
@@ -253,7 +323,7 @@ func (s *Service) StartElection() {
 					return
 				}
 				defer client.Close()
-				
+
 				req := internalrpc.CoordinatorRequest{NodeID: s.NodeID}
 				var res internalrpc.CoordinatorResponse
 				if err := client.Call("NodeService.Coordinator", &req, &res); err != nil {
@@ -301,7 +371,7 @@ func (s *Service) StartSnapshot() {
 
 	// Record local state
 	state := s.Store.GetCopy()
-	
+
 	s.mu.Lock()
 	if s.snapshots == nil {
 		s.snapshots = make(map[int64]map[string]string)
@@ -346,7 +416,7 @@ func (s *Service) Snapshot(req *internalrpc.SnapshotRequest, res *internalrpc.Sn
 
 	// Record state
 	state := s.Store.GetCopy()
-	
+
 	s.mu.Lock()
 	// Double check
 	if _, exists := s.snapshots[req.SnapshotID]; !exists {

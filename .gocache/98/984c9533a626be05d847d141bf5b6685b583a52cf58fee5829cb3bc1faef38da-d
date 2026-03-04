@@ -1,0 +1,8 @@
+# test log
+getenv TMPDIR
+stat /tmp/TestPersistence1459249629/001/store.json
+open /tmp/TestPersistence1459249629/001/store.json
+stat /tmp/TestPersistence1459249629/001/store.json
+stat /tmp/TestPersistence1459249629/001/store.json
+open /tmp/TestPersistence1459249629/001/store.json
+open /tmp
