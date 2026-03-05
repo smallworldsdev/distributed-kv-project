@@ -76,9 +76,32 @@ func main() {
 
 	case "trigger":
 		if len(os.Args) < 4 {
-			log.Fatal("Usage: trigger <algorithm> (mutex, election, snapshot)")
+			log.Fatal("Usage: trigger <algorithm> (mutex, election, snapshot, viewsnapshots)")
 		}
 		algo := os.Args[3]
+
+		if algo == "viewsnapshots" {
+			var snapRes internalrpc.GetSnapshotsResponse
+			err = client.Call("NodeService.GetSnapshots", &internalrpc.GetSnapshotsRequest{}, &snapRes)
+			if err != nil {
+				log.Fatal("RPC call failed:", err)
+			}
+			if !snapRes.Success {
+				fmt.Println("Failed to get snapshots")
+			} else if len(snapRes.Snapshots) == 0 {
+				fmt.Println("No snapshots found")
+			} else {
+				for snapID, data := range snapRes.Snapshots {
+					fmt.Printf("Snapshot ID: %d\n", snapID)
+					for k, v := range data {
+						fmt.Printf("  %s -> %s\n", k, v)
+					}
+					fmt.Println("---")
+				}
+			}
+			return
+		}
+
 		req := &internalrpc.TriggerRequest{
 			Command: algo,
 		}

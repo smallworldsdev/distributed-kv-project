@@ -73,6 +73,15 @@ type SnapshotResponse struct {
 	Success bool
 }
 
+type GetSnapshotsRequest struct {
+	SnapshotID int64
+}
+
+type GetSnapshotsResponse struct {
+	Snapshots map[int64]map[string]string
+	Success   bool
+}
+
 // Client Triggers
 
 type TriggerRequest struct {

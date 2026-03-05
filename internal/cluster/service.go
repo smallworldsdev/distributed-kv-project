@@ -455,6 +455,19 @@ func (s *Service) Snapshot(req *internalrpc.SnapshotRequest, res *internalrpc.Sn
 	return nil
 }
 
+func (s *Service) GetSnapshots(req *internalrpc.GetSnapshotsRequest, res *internalrpc.GetSnapshotsResponse) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.snapshots == nil {
+		res.Snapshots = make(map[int64]map[string]string)
+	} else {
+		res.Snapshots = s.snapshots
+	}
+	res.Success = true
+	return nil
+}
+
 // ---- Client Trigger ----
 
 func (s *Service) Trigger(req *internalrpc.TriggerRequest, res *internalrpc.TriggerResponse) error {
