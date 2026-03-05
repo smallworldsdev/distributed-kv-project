@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/rpc"
 	"strings"
 	"sync"
@@ -15,7 +16,30 @@ import (
 const (
 	HeartbeatInterval = 1 * time.Second
 	ElectionTimeout   = 3 * time.Second
+	DialTimeout       = 1 * time.Second
+	RPCCallTimeout    = 2 * time.Second
 )
+
+func dialWithTimeout(addr string) (*rpc.Client, error) {
+	conn, err := net.DialTimeout("tcp", addr, DialTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return rpc.NewClient(conn), nil
+}
+
+func callWithTimeout(client *rpc.Client, serviceMethod string, args interface{}, reply interface{}) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Call(serviceMethod, args, reply)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(RPCCallTimeout):
+		return fmt.Errorf("rpc call timed out")
+	}
+}
 
 type Service struct {
 	NodeID string
@@ -284,21 +308,23 @@ func (s *Service) StartElection() {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			client, err := rpc.Dial("tcp", p)
+			client, err := dialWithTimeout(p)
 			if err != nil {
-				// Peer down, ignore
+				log.Printf("Node %s: dial to %s failed: %v", s.NodeID, p, err)
 				return
 			}
 			defer client.Close()
 
 			req := internalrpc.ElectionRequest{NodeID: s.NodeID}
 			var res internalrpc.ElectionResponse
-			if err := client.Call("NodeService.Election", &req, &res); err == nil {
-				if res.Alive {
-					s.mu.Lock()
-					higherNodeFound = true
-					s.mu.Unlock()
-				}
+			if err := callWithTimeout(client, "NodeService.Election", &req, &res); err != nil {
+				log.Printf("Node %s: election RPC to %s failed: %v", s.NodeID, p, err)
+				return
+			}
+			if res.Alive {
+				s.mu.Lock()
+				higherNodeFound = true
+				s.mu.Unlock()
 			}
 		}(peer)
 	}
@@ -318,16 +344,17 @@ func (s *Service) StartElection() {
 		// Broadcast Coordinator
 		for _, peer := range s.Peers {
 			go func(p string) {
-				client, err := rpc.Dial("tcp", p)
+				client, err := dialWithTimeout(p)
 				if err != nil {
+					log.Printf("Node %s: dial to %s failed: %v", s.NodeID, p, err)
 					return
 				}
 				defer client.Close()
 
 				req := internalrpc.CoordinatorRequest{NodeID: s.NodeID}
 				var res internalrpc.CoordinatorResponse
-				if err := client.Call("NodeService.Coordinator", &req, &res); err != nil {
-					log.Printf("Failed to notify coordinator to %s: %v", p, err)
+				if err := callWithTimeout(client, "NodeService.Coordinator", &req, &res); err != nil {
+					log.Printf("Node %s: coordinator RPC to %s failed: %v", s.NodeID, p, err)
 				}
 			}(peer)
 		}
@@ -495,17 +522,17 @@ func (s *Service) runHeartbeatSender() {
 			if isLeader {
 				for _, peer := range s.Peers {
 					go func(p string) {
-						client, err := rpc.Dial("tcp", p)
+						client, err := dialWithTimeout(p)
 						if err != nil {
-							// Peer might be down
+							log.Printf("Node %s: heartbeat dial to %s failed: %v", s.NodeID, p, err)
 							return
 						}
 						defer client.Close()
 
 						req := internalrpc.HeartbeatRequest{LeaderID: s.NodeID}
 						var res internalrpc.HeartbeatResponse
-						if err := client.Call("NodeService.Heartbeat", &req, &res); err != nil {
-							// Log failure sparingly?
+						if err := callWithTimeout(client, "NodeService.Heartbeat", &req, &res); err != nil {
+							log.Printf("Node %s: heartbeat RPC to %s failed: %v", s.NodeID, p, err)
 						}
 					}(peer)
 				}
@@ -530,7 +557,7 @@ func (s *Service) runElectionMonitor() {
 			s.mu.Unlock()
 
 			if !isLeader && !electionInProgress && elapsed > ElectionTimeout {
-				log.Printf("Node %s detected leader failure (last heartbeat %v ago). Starting election.", s.NodeID, elapsed)
+				log.Printf("Node %s detected leader(%s) failure (last heartbeat %v ago). Starting election.", s.NodeID, s.leaderID, elapsed)
 				// Reset lastHeartbeat to prevent immediate re-triggering while election starts?
 				// StartElection will set isElectionInProgress=true, which blocks this check.
 				go s.StartElection()
